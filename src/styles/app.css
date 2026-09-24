@@ -685,6 +685,32 @@
   filter: none;
 }
 
+/* Fond de secours quand les tuiles sont bloquées : grille tactique */
+.tiles-down .map-root {
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 229, 255, 0.07) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgba(0, 229, 255, 0.07) 0 1px, transparent 1px 40px),
+    radial-gradient(circle at 50% 50%, #062033 0%, #030608 80%);
+}
+
+.tiles-down-banner {
+  position: fixed;
+  left: 346px;
+  bottom: 38px;
+  z-index: 950;
+  max-width: 420px;
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  letter-spacing: 0.5px;
+  color: var(--yellow);
+  background: rgba(4, 10, 16, 0.92);
+  border: 1px solid rgba(255, 213, 74, 0.45);
+  border-left-width: 3px;
+  pointer-events: none;
+}
+
 /* Réticule central */
 .crosshair-overlay {
   position: relative;

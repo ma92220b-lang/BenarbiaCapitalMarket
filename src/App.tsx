@@ -72,6 +72,7 @@ export default function App() {
   const [zoom, setZoom] = useState(3);
   const [cursor, setCursor] = useState<{ lat: string; lon: string } | null>(null);
   const [toasts, setToasts] = useState<{ id: number; msg: string; kind: 'ok' | 'err' }[]>([]);
+  const [tileFail, setTileFail] = useState<BaseLayer | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const addLog = useCallback((level: LogLine['level'], msg: string) => {
@@ -257,7 +258,7 @@ export default function App() {
   const statusLed = busy ? 'busy' : err ? 'err' : phase === 'IMMERSED' ? '' : 'warn';
 
   return (
-    <div className={`app-shell map-${baseLayer.toLowerCase()}`}>
+    <div className={`app-shell map-${baseLayer.toLowerCase()}${tileFail === baseLayer ? ' tiles-down' : ''}`}>
       <MapView
         ref={mapRef}
         baseLayer={baseLayer}
@@ -281,6 +282,12 @@ export default function App() {
             const c = m.getCenter();
             setCursor({ lat: c.lat.toFixed(5), lon: c.lng.toFixed(5) });
           }
+        }}
+        onTileError={(layer) => {
+          if (tileFail === layer) return;
+          setTileFail(layer);
+          addLog('WARN', `FOND ${layer} INJOIGNABLE · FOND DE SECOURS ACTIVÉ`);
+          toast('FOND DE CARTE BLOQUÉ — AFFICHAGE DE SECOURS (réseau ?', 'err');
         }}
       />
 
@@ -395,6 +402,16 @@ export default function App() {
           <span className="sb-v">38 ms</span>
         </div>
       </footer>
+
+      {/* Bandeau diagnostic tuiles bloquées */}
+      {tileFail === baseLayer && (
+        <div className="tiles-down-banner">
+          ⚠ FOND {baseLayer} BLOQUÉ PAR LE RÉSEAU — AFFICHAGE DE SECOURS ACTIF.
+          <br />
+          Testez le module [2.2] FOND DE CARTE (STREETS OSM) ou quittez un réseau
+          restrictif (VPN/proxy d'école/entreprise).
+        </div>
+      )}
 
       {/* Toasts */}
       <div className="toast-wrap">

@@ -22,6 +22,7 @@ interface Props {
   showTrails: boolean;
   onPoiSelect: (p: Poi) => void;
   onZoomChange: (z: number) => void;
+  onTileError: (layer: BaseLayer) => void;
 }
 
 const POI_STYLE: Record<PoiCategory, { color: string; glyph: string; label: string }> = {
@@ -59,7 +60,8 @@ const MapView = forwardRef<MapHandle, Props>(function MapView(
     showGrid,
     showTrails,
     onPoiSelect,
-    onZoomChange
+    onZoomChange,
+    onTileError
   },
   ref
 ) {
@@ -100,18 +102,25 @@ const MapView = forwardRef<MapHandle, Props>(function MapView(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fond de carte
+  // Fond de carte + diagnostic d'échec de tuiles
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     if (baseRef.current) map.removeLayer(baseRef.current);
-    baseRef.current = L.tileLayer(TILE_URLS[baseLayer], {
+    const layer = L.tileLayer(TILE_URLS[baseLayer], {
       maxZoom: 19,
       subdomains: 'abc',
       crossOrigin: true
     });
-    baseRef.current.addTo(map);
-  }, [baseLayer]);
+    let reported = false;
+    layer.on('tileerror', () => {
+      if (reported) return;
+      reported = true;
+      onTileError(baseLayer);
+    });
+    layer.addTo(map);
+    baseRef.current = layer;
+  }, [baseLayer, onTileError]);
 
   // Grille méridiens/parallèles
   useEffect(() => {
