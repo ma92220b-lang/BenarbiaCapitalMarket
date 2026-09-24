@@ -1,0 +1,7 @@
+{
+  "name": "benarbia-capital-market",
+  "private": true,
+  "scripts": {
+    "build": "cd geospatialdatanetworking && npm install --no-audit --no-fund && npm run build"
+  }
+}
