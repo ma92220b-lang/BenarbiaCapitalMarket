@@ -188,17 +188,33 @@ const MapView = forwardRef<MapHandle, Props>(function MapView(
       }
     }
 
-    // Maillage rues
+    // Maillage rues + étiquettes de noms (z ≥ 16)
     streetsRef.current!.clearLayers();
+    const showLabels = map.getZoom() >= 16;
+    const labeled = new Set<string>();
     if (showStreets) {
       for (const s of streets) {
-        const col = s.distance < 80 ? '#00ffd5' : s.distance < 250 ? '#22d3ee' : '#3b82f6';
         L.polyline(s.points, {
-          color: col,
-          weight: s.distance < 80 ? 2.2 : 1.4,
-          opacity: 0.75,
+          color: s.distance < 80 ? '#3b82c4' : s.distance < 250 ? '#2a5a80' : '#1e3a52',
+          weight: s.distance < 80 ? 2.4 : 1.5,
+          opacity: 0.85,
           interactive: false
         }).addTo(streetsRef.current!);
+
+        if (showLabels && s.name !== 'SECTEUR NON NOMMÉ' && !labeled.has(s.name)) {
+          const mid = s.points[Math.floor(s.points.length / 2)];
+          const lbl = L.marker(mid, {
+            icon: L.divIcon({
+              className: 'street-label',
+              html: `<span>${s.name}</span>`,
+              iconSize: [0, 0],
+              iconAnchor: [0, 8]
+            }),
+            interactive: false
+          });
+          labeled.add(s.name);
+          lbl.addTo(streetsRef.current!);
+        }
       }
     }
 

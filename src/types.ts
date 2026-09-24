@@ -92,3 +92,51 @@ export interface HistoryEntry {
 }
 
 export type BaseLayer = 'SAT' | 'NIGHT' | 'STREETS';
+
+/* ------------------------------------------------------------------ */
+/* Reconnaissance croisée                                              */
+/* ------------------------------------------------------------------ */
+
+/** Établissement enrichi multi-sources (annuaire open-data + OSM). */
+export interface IntelEstablishment {
+  name: string;
+  category: PoiCategory | 'other';
+  lat: number;
+  lon: number;
+  distance: number;
+  phone?: string;
+  website?: string;
+  email?: string;
+  openingHours?: string;
+  address?: string;
+  sources: string[]; // ex: ['OSM', 'PAGES JAUNES OPEN']
+}
+
+/** Adresse numérotée relevée dans le périmètre. */
+export interface BuildingAddress {
+  street: string;
+  housenumber: string;
+  lat: number;
+  lon: number;
+  distance: number;
+  units?: string; //Nb d'entrées/bâtiments au même numéro
+}
+
+export interface IntelResult {
+  establishments: IntelEstablishment[];
+  addresses: BuildingAddress[];
+  streetNames: string[];
+  verify: {
+    nominatim: boolean; // adresse résolue
+    photon: boolean; // accord du 2e géocodeur
+    agreementMeters: number | null; // écart entre les deux
+    osmAddress: boolean; // addr présente dans le périmètre
+  };
+}
+
+export interface SourceStatus {
+  id: string;
+  label: string;
+  state: 'pend' | 'ok' | 'warn' | 'err';
+  detail?: string;
+}

@@ -1,24 +1,22 @@
 @import 'leaflet/dist/leaflet.css';
 
 :root {
-  --bg-0: #030608;
-  --bg-1: #06111a;
-  --bg-2: #0a1826;
-  --bg-3: #0f2233;
-  --line: #12354a;
-  --line-hi: #1e5a78;
-  --cyan: #00e5ff;
-  --teal: #00ffcc;
-  --amber: #ffb454;
-  --red: #ff5370;
-  --green: #3dfa8e;
-  --yellow: #ffd54a;
-  --violet: #c792ea;
-  --txt-0: #d8f3ff;
-  --txt-1: #7fa8bd;
-  --txt-2: #46647a;
-  --font-disp: 'Orbitron', sans-serif;
-  --font-ui: 'Rajdhani', sans-serif;
+  --bg-0: #050608;
+  --bg-1: #090b0f;
+  --bg-2: #0d1015;
+  --bg-3: #12161d;
+  --line: #1c222c;
+  --line-hi: #2a3340;
+  --blue: #3b82c4;
+  --blue-dim: #274b68;
+  --txt-0: #c8d2dc;
+  --txt-1: #7d8b99;
+  --txt-2: #4a5766;
+  --ok: #4a9e6f;
+  --warn: #b08d4f;
+  --err: #b0504f;
+  --font-disp: 'Inter', 'Rajdhani', sans-serif;
+  --font-ui: 'Inter', 'Rajdhani', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 
@@ -44,14 +42,14 @@ body {
 }
 
 ::selection {
-  background: rgba(0, 229, 255, 0.35);
+  background: rgba(59, 130, 196, 0.3);
 }
 
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;
 }
-::-webkit-scrollbar-track {
+::-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
@@ -70,68 +68,27 @@ input,
 select {
   font-family: var(--font-mono);
   color: var(--txt-0);
-  background: rgba(0, 229, 255, 0.04);
+  background: #0a0d12;
   border: 1px solid var(--line);
   outline: none;
 }
 
 input:focus,
 select:focus {
-  border-color: var(--cyan);
-  box-shadow:
-    0 0 0 1px rgba(0, 229, 255, 0.25),
-    inset 0 0 12px rgba(0, 229, 255, 0.06);
+  border-color: var(--blue);
+  box-shadow: none;
 }
 
 input::placeholder {
   color: var(--txt-2);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
 }
 
-/* ---------- Décor global ---------- */
+/* ---------- Décor global (sobre) ---------- */
 
 .app-shell {
   position: fixed;
   inset: 0;
   display: flex;
   background: var(--bg-0);
-}
-
-.app-shell::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 400;
-  background: repeating-linear-gradient(
-    0deg,
-    rgba(0, 0, 0, 0.13) 0px,
-    rgba(0, 0, 0, 0.13) 1px,
-    transparent 1px,
-    transparent 3px
-  );
-  mix-blend-mode: overlay;
-  opacity: 0.5;
-}
-
-.app-shell::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 401;
-  background: radial-gradient(
-    ellipse at center,
-    transparent 55%,
-    rgba(1, 4, 7, 0.55) 100%
-  );
-}
-
-@keyframes bootfade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }

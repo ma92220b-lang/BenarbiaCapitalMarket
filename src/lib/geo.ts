@@ -1,6 +1,9 @@
 import type {
+  BuildingAddress,
   CoordFormat,
   GeoPlace,
+  IntelEstablishment,
+  IntelResult,
   NearestRoad,
   ParsedCoords,
   Poi,
@@ -9,6 +12,7 @@ import type {
 } from '../types';
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
+const PHOTON = 'https://photon.komoot.io/reverse';
 
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
@@ -319,6 +323,126 @@ export function deriveNearestRoad(target: [number, number], segs: StreetSegment[
   const p1 = best.points[Math.min(1, best.points.length - 1)];
   const brg = bearing(p0[0], p0[1], p1[0], p1[1]);
   return { name: best.name, distance: bD, point: bPt, bearing: brg };
+}
+
+/* ------------------------------------------------------------------ */
+/* Reconnaissance croisée multi-sources                                */
+/* ------------------------------------------------------------------ */
+
+interface PhotonFeature {
+  geometry: { coordinates: [number, number] }; // [lon, lat]
+  properties: {
+    name?: string;
+    street?: string;
+    housenumber?: string;
+    city?: string;
+    country?: string;
+    postcode?: string;
+  };
+}
+
+/** 2e géocodeur indépendant : vérifie l'adresse résolue par Nominatim. */
+export async function photonReverse(
+  lat: number,
+  lon: number,
+  signal?: AbortSignal
+): Promise<{ street?: string; city?: string; postcode?: string; housenumber?: string } | null> {
+  try {
+    const d = await jsonFetch<{ features: PhotonFeature[] }>(
+      `${PHOTON}?lat=${lat}&lon=${lon}&lang=fr`,
+      signal,
+      15000
+    );
+    const p = d.features?.[0]?.properties;
+    if (!p) return null;
+    return { street: p.street, city: p.city, postcode: p.postcode, housenumber: p.housenumber };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Collecte complète dans un périmètre : établissements avec contacts
+ * (téléphone/site/horaires = "pages jaunes" open-data via OSM), adresses
+ * numérotées, voirie, et vérification d'adresse par 3 sources.
+ */
+export async function fetchIntel(
+  lat: number,
+  lon: number,
+  radius: number,
+  signal?: AbortSignal
+): Promise<IntelResult> {
+  const r = Math.max(radius, 300);
+  const q =
+    `[out:json][timeout:30];(` +
+    // Établissements avec contacts (l'équivalent open-data des pages jaunes)
+    `nwr(around:${r},${lat},${lon})["name"][~"^(phone|contact:phone|website|contact:website|email|opening_hours)$"~"."];` +
+    // Adresses numérotées
+    `nwr(around:${r},${lat},${lon})["addr:housenumber"];` +
+    `);out center 800;`;
+  const data = await overpass(q, signal);
+
+  const establishments: IntelEstablishment[] = [];
+  const addrMap = new Map<string, BuildingAddress>();
+  let osmAddress = false;
+
+  for (const el of data.elements) {
+    const t = el.tags ?? {};
+    const pLat = el.lat ?? el.center?.lat;
+    const pLon = el.lon ?? el.center?.lon;
+    if (pLat === undefined || pLon === undefined) continue;
+    const dist = haversine(lat, lon, pLat, pLon);
+
+    // Adresses
+    if (t['addr:housenumber'] && t['addr:street']) {
+      if (dist <= r + 40) osmAddress = true;
+      const key = `${t['addr:street']}|${t['addr:housenumber']}`;
+      const prev = addrMap.get(key);
+      if (!prev) {
+        addrMap.set(key, {
+          street: t['addr:street'],
+          housenumber: t['addr:housenumber'],
+          lat: pLat,
+          lon: pLon,
+          distance: dist
+        });
+      } else if (dist < prev.distance) {
+        prev.lat = pLat;
+        prev.lon = pLon;
+        prev.distance = dist;
+      }
+      // Un bâtiment adressé peut aussi être un établissement
+    }
+
+    // Établissements avec contacts
+    if (t.name) {
+      const phone = t.phone ?? t['contact:phone'];
+      const website = t.website ?? t['contact:website'];
+      if (phone || website || t.email || t.opening_hours) {
+        establishments.push({
+          name: t.name,
+          category: categorize(t),
+          lat: pLat,
+          lon: pLon,
+          distance: dist,
+          phone,
+          website,
+          email: t.email,
+          openingHours: t.opening_hours,
+          address:
+            t['addr:housenumber'] && t['addr:street']
+              ? `${t['addr:housenumber']} ${t['addr:street']}${t['addr:postcode'] ? ', ' + t['addr:postcode'] : ''}${t['addr:city'] ? ' ' + t['addr:city'] : ''}`
+          : undefined,
+          sources: ['OSM']
+        });
+      }
+    }
+  }
+
+  establishments.sort((a, b) => a.distance - b.distance);
+  const addresses = [...addrMap.values()].sort((a, b) => a.distance - b.distance);
+
+  return { establishments: establishments.slice(0, 40), addresses: addresses.slice(0, 60), streetNames: [], verify: { nominatim: false, photon: false, agreementMeters: null, osmAddress } };
 }
 
 async function overpass(query: string, signal?: AbortSignal): Promise<{ elements: OverpassEl[] }> {

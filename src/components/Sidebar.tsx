@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { BaseLayer, GeoPlace, HistoryEntry, LogLine, Poi, PoiCategory, StreetSegment } from '../types';
+import type {
+  BaseLayer,
+  GeoPlace,
+  HistoryEntry,
+  IntelResult,
+  LogLine,
+  Poi,
+  PoiCategory,
+  SourceStatus,
+  StreetSegment
+} from '../types';
 import { POI_STYLE } from './MapView';
-import { cardinal, fmtMeters, toDms } from '../lib/geo';
+import { fmtMeters, toDms } from '../lib/geo';
 
 export interface SidebarProps {
   // LOCALISE
@@ -15,6 +25,8 @@ export interface SidebarProps {
   pois: Poi[];
   streets: StreetSegment[];
   nearestRoad: { name: string; distance: number; bearing: number } | null;
+  intel: IntelResult | null;
+  sources: SourceStatus[];
   // Modules
   poiCats: PoiCategory[];
   togglePoiCat: (c: PoiCategory) => void;
@@ -59,7 +71,7 @@ function Cat({
   return (
     <div className={`cat${open ? ' open' : ''}`}>
       <button className="cat-head" onClick={onToggle}>
-        <span className="idx" style={{ color: 'var(--cyan)', fontFamily: 'var(--font-mono)', fontSize: 9 }}>
+        <span style={{ color: 'var(--blue)', fontFamily: 'var(--font-mono)', fontSize: 9 }}>
           {code}
         </span>
         <span>{title}</span>
@@ -73,21 +85,19 @@ function Cat({
 function Module({
   id,
   title,
-  children,
-  accent
+  children
 }: {
   id: string;
   title: string;
   children: React.ReactNode;
-  accent?: string;
 }) {
   return (
-    <div className="module" style={accent ? { borderColor: `${accent}55` } : undefined}>
+    <div className="module">
       <div className="module-head">
         <span className="mod-id">[{id}]</span>
         <span>{title}</span>
         <span className="spacer" />
-        <span style={{ color: 'var(--green)' }}>●</span>
+        <span style={{ color: 'var(--txt-2)' }}>●</span>
       </div>
       <div className="module-body">{children}</div>
     </div>
@@ -95,29 +105,35 @@ function Module({
 }
 
 function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
+  return <button className={`toggle${on ? ' on' : ''}`} onClick={onClick} aria-pressed={on} />;
+}
+
+function SourceBadges({ sources }: { sources: SourceStatus[] }) {
   return (
-    <button
-      className={`toggle${on ? ' on' : ''}`}
-      onClick={onClick}
-      aria-pressed={on}
-    />
+    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+      {sources.map((s) => (
+        <span key={s.id} className={`badge ${s.state}`} title={s.detail}>
+          {s.state === 'ok' ? '✓' : s.state === 'err' ? '✕' : '··'} {s.label}
+        </span>
+      ))}
+    </div>
   );
 }
 
 const CATS = [
   { id: 'localised', title: 'LOCALISED POINT', code: '01' },
-  { id: 'layers', title: 'COUCHES & FOND', code: '02' },
-  { id: 'intel', title: 'RENSEIGNEMENT', code: '03' },
+  { id: 'intel', title: 'RECONNAISSANCE', code: '02' },
+  { id: 'layers', title: 'COUCHES & FOND', code: '03' },
   { id: 'ops', title: 'OPÉRATIONS', code: '04' },
-  { id: 'logs', title: 'JOURNAL TÉLÉMÉTRIE', code: '05' }
+  { id: 'logs', title: 'JOURNAL', code: '05' }
 ] as const;
 type CatId = (typeof CATS)[number]['id'];
 
 export default function Sidebar(p: SidebarProps) {
   const [open, setOpen] = useState<Record<CatId, boolean>>({
     localised: true,
-    layers: true,
     intel: true,
+    layers: false,
     ops: false,
     logs: false
   });
@@ -127,8 +143,6 @@ export default function Sidebar(p: SidebarProps) {
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [p.log]);
-
-  const topPois = useMemo(() => p.pois.slice(0, 5), [p.pois]);
 
   const catDist = useMemo(() => {
     const m = new Map<PoiCategory, number>();
@@ -165,11 +179,9 @@ export default function Sidebar(p: SidebarProps) {
       <div className="sidebar-scroll">
         {/* ================= 01 LOCALISED POINT ================= */}
         <Cat title="LOCALISED POINT" code="01" open={open.localised} onToggle={() => toggle('localised')}>
-          {/* --- Option : LOCALISE --- */}
           <div className="opt">
             <button className="opt-label active">
               <span className="idx">1.0</span> LOCALISE
-              <span style={{ marginLeft: 'auto', color: 'var(--teal)', fontSize: 9 }}>◉ ACTIVE</span>
             </button>
 
             <div className="field-row">
@@ -190,14 +202,13 @@ export default function Sidebar(p: SidebarProps) {
             </div>
 
             {p.err && (
-              <div className="hint" style={{ color: 'var(--red)' }}>
-                ⚠ {p.err}
+              <div className="hint" style={{ color: 'var(--err)' }}>
+                ✕ {p.err}
               </div>
             )}
 
             <div className="hint">
-              <b>FORMATS</b> : DD « 48.8584, 2.2945 » · DMS « 48°51'29"N, 2°17'40"E » · DDM · signés ·
-              ordinata S/W auto
+              <b>FORMATS</b> : DD « 48.8584, 2.2945 » · DMS « 48°51'29"N, 2°17'40"E » · DDM · S/W auto
             </div>
           </div>
 
@@ -218,28 +229,20 @@ export default function Sidebar(p: SidebarProps) {
                 </div>
                 <div className="kv">
                   <span className="k">DMS</span>
-                  <span className="v">
-                    {toDms(p.place.lat, true)} {toDms(p.place.lon, false)}
-                  </span>
+                  <span className="v">{toDms(p.place.lat, true)} {toDms(p.place.lon, false)}</span>
                 </div>
                 <div className="kv">
                   <span className="k">TYPE</span>
-                  <span className="v">
-                    {p.place.class}/{p.place.type}
-                  </span>
+                  <span className="v">{p.place.class}/{p.place.type}</span>
                 </div>
                 <div className="kv">
                   <span className="k">PAYS</span>
-                  <span className="v">
-                    {p.place.country ?? '—'} [{p.place.countryCode ?? '—'}]
-                  </span>
+                  <span className="v">{p.place.country ?? '—'} [{p.place.countryCode ?? '—'}]</span>
                 </div>
                 {p.nearestRoad && (
                   <div className="kv">
                     <span className="k">AXE PROCHE</span>
-                    <span className="v">
-                      {p.nearestRoad.name} · {fmtMeters(p.nearestRoad.distance)}
-                    </span>
+                    <span className="v">{p.nearestRoad.name} · {fmtMeters(p.nearestRoad.distance)}</span>
                   </div>
                 )}
               </div>
@@ -247,37 +250,160 @@ export default function Sidebar(p: SidebarProps) {
           )}
         </Cat>
 
-        {/* ================= 02 COUCHES & FOND ================= */}
-        <Cat title="COUCHES & FOND" code="02" open={open.layers} onToggle={() => toggle('layers')}>
-          {/* 2.1 Scan radar */}
-          <Module id="2.1" title="SCAN RADAR">
-            <button className="btn full" onClick={p.onScan} disabled={!p.place}>
-              ◉ LANCER SWEEP RADAR
-            </button>
-            <div className="hint">3 ondes concentriques émises depuis la cible verrouillée.</div>
+        {/* ================= 02 RECONNAISSANCE ================= */}
+        <Cat title="RECONNAISSANCE" code="02" open={open.intel} onToggle={() => toggle('intel')}>
+          {/* 2.1 Sources croisées */}
+          <Module id="2.1" title="SOURCES CROISÉES">
+            <SourceBadges sources={p.sources} />
+            {p.intel && p.intel.verify.agreementMeters !== null && (
+              <div className="kv" style={{ marginTop: 8 }}>
+                <span className="k">ÉCART GÉOCODEURS</span>
+                <span className="v hl">{p.intel.verify.agreementMeters.toFixed(0)} m</span>
+              </div>
+            )}
+            <div className="hint">
+              Nominatim + Photon (adresses) · Overpass (contacts, voirie, numéros).
+              Croisement sur un périmètre de {Math.max(p.radius, 300)} m.
+            </div>
           </Module>
 
-          {/* 2.2 Fond de carte */}
-          <Module id="2.2" title="FOND DE CARTE">
+          {/* 2.2 Fiches établissements */}
+          <Module id="2.2" title={`ÉTABLISSEMENTS [${p.intel?.establishments.length ?? 0}]`}>
+            {(!p.intel || p.intel.establishments.length === 0) && (
+              <div className="hint">Aucun établissement répertorié dans le périmètre.</div>
+            )}
+            {p.intel?.establishments.slice(0, 12).map((e, i) => (
+              <div key={`${e.name}-${i}`} className="fiche">
+                <div className="fiche-name">{e.name}</div>
+                <div className="fiche-cat">
+                  {e.category === 'other' ? 'POINT D\u2019INTÉRÊT' : POI_STYLE[e.category].label}
+                  {' · '}
+                  {fmtMeters(e.distance)}
+                </div>
+                <div className="fiche-rows">
+                  {e.address && (
+                    <div className="kv">
+                      <span className="k">ADRESSE</span>
+                      <span className="v">{e.address}</span>
+                    </div>
+                  )}
+                  {e.phone && (
+                    <div className="kv">
+                      <span className="k">TÉL</span>
+                      <span className="v hl">
+                        <a href={`tel:${e.phone.replace(/\\s/g, '')}`} style={{ color: 'inherit' }}>
+                          {e.phone}
+                        </a>
+                      </span>
+                    </div>
+                  )}
+                  {e.website && (
+                    <div className="kv">
+                      <span className="k">WEB</span>
+                      <span className="v" style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <a href={e.website} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>
+                          {e.website.replace(/^https?:\//, '')}
+                        </a>
+                      </span>
+                    </div>
+                  )}
+                  {e.openingHours && (
+                    <div className="kv">
+                      <span className="k">HORAIRES</span>
+                      <span className="v">{e.openingHours}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </Module>
+
+          {/* 2.3 Adresses numérotées */}
+          <Module id="2.3" title={`ADRESSES RELEVÉES [${p.intel?.addresses.length ?? 0}]`}>
+            {(!p.intel || p.intel.addresses.length === 0) && (
+              <div className="hint">Aucun numéro relevé dans le périmètre.</div>
+            )}
+            {p.intel?.addresses.slice(0, 20).map((a, i) => (
+              <div key={`${a.street}-${a.housenumber}-${i}`} className="addr-item">
+                <span className="addr-n">{fmtMeters(a.distance)}</span>
+                {' · '}
+                <span className="addr-street">{a.housenumber} {a.street}</span>
+              </div>
+            ))}
+          </Module>
+
+          {/* 2.4 Voirie */}
+          <Module id="2.4" title={`VOIRIE [${streetNames.length}]`}>
+            {streetNames.length === 0 && <div className="hint">Maillage non résolu.</div>}
+            {streetNames.map((n, i) => (
+              <div key={n + i} className="kv">
+                <span className="k">R{i + 1}</span>
+                <span className="v">{n}</span>
+              </div>
+            ))}
+          </Module>
+
+          {/* 2.5 Signaux POI */}
+          <Module id="2.5" title="SIGNAUX POI">
+            <div className="chip-grid">
+              {(Object.keys(POI_STYLE) as PoiCategory[]).map((c) => {
+                const n = catDist.get(c) ?? 0;
+                const on = p.poiCats.includes(c);
+                return (
+                  <button
+                    key={c}
+                    className={`chip${on ? ' on' : ''}`}
+                    style={{ '--c': POI_STYLE[c].color } as React.CSSProperties}
+                    onClick={() => p.togglePoiCat(c)}
+                  >
+                    <span className="dot" />
+                    {POI_STYLE[c].label}
+                    <span className="n">{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </Module>
+        </Cat>
+
+        {/* ================= 03 COUCHES & FOND ================= */}
+        <Cat title="COUCHES & FOND" code="03" open={open.layers} onToggle={() => toggle('layers')}>
+          <Module id="3.1" title="RAYON D'ANALYSE">
+            <div className="field-row" style={{ alignItems: 'center' }}>
+              <input
+                type="range"
+                min={100}
+                max={1500}
+                step={50}
+                value={p.radius}
+                onChange={(e) => p.setRadius(Number(e.target.value))}
+                style={{ flex: 1, accentColor: '#3b82c4' }}
+              />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, minWidth: 52, textAlign: 'right' }}>
+                {p.radius} m
+              </span>
+            </div>
+          </Module>
+
+          <Module id="3.2" title="FOND DE CARTE">
             <div className="chip-grid">
               {(['SAT', 'NIGHT', 'STREETS'] as BaseLayer[]).map((b) => (
                 <button
                   key={b}
                   className={`chip${p.baseLayer === b ? ' on' : ''}`}
-                  style={{ '--c': b === 'SAT' ? '#ffb454' : b === 'NIGHT' ? '#00e5ff' : '#a2e85b' } as React.CSSProperties}
+                  style={{ '--c': '#3b82c4' } as React.CSSProperties}
                   onClick={() => p.setBaseLayer(b)}
                 >
                   <span className="dot" />
-                  {b === 'SAT' ? 'SAT IMAGERIE' : b === 'NIGHT' ? 'NIGHT OPS' : 'STREETS OSM'}
+                  {b === 'SAT' ? 'SAT IMAGERIE' : b === 'NIGHT' ? 'NIGHT' : 'STREETS'}
                 </button>
               ))}
             </div>
           </Module>
 
-          {/* 2.3 Overlays */}
-          <Module id="2.3" title="OVERLAYS TACTIQUES">
+          <Module id="3.3" title="OVERLAYS">
             <div className="layer-row">
-              <span>ANNEAUX RADAR</span>
+              <span>PÉRIMÈTRE RADAR</span>
               <Toggle on={p.showRings} onClick={() => p.setShowRings(!p.showRings)} />
             </div>
             <div className="layer-row">
@@ -289,13 +415,12 @@ export default function Sidebar(p: SidebarProps) {
               <Toggle on={p.showGrid} onClick={() => p.setShowGrid(!p.showGrid)} />
             </div>
             <div className="layer-row">
-              <span>TRACE DRONE</span>
+              <span>TRACE DÉPLACEMENTS</span>
               <Toggle on={p.showTrails} onClick={() => p.setShowTrails(!p.showTrails)} />
             </div>
           </Module>
 
-          {/* 2.4 Historique */}
-          <Module id="2.4" title={`HISTORIQUE [${p.history.length}]`}>
+          <Module id="3.4" title={`HISTORIQUE [${p.history.length}]`}>
             {p.history.length === 0 && <div className="hint">Aucun point verrouillé.</div>}
             {p.history.map((h) => (
               <button key={h.id} className="hist-item" onClick={() => p.onHistoryGoto(h)}>
@@ -320,99 +445,19 @@ export default function Sidebar(p: SidebarProps) {
           </Module>
         </Cat>
 
-        {/* ================= 03 RENSEIGNEMENT ================= */}
-        <Cat title="RENSEIGNEMENT" code="03" open={open.intel} onToggle={() => toggle('intel')}>
-          {/* 3.1 Catégories POI */}
-          <Module id="3.1" title="SIGNAUX POI">
-            <div className="chip-grid">
-              {(Object.keys(POI_STYLE) as PoiCategory[]).map((c) => {
-                const n = catDist.get(c) ?? 0;
-                const on = p.poiCats.includes(c);
-                return (
-                  <button
-                    key={c}
-                    className={`chip${on ? ' on' : ''}`}
-                    style={{ '--c': POI_STYLE[c].color } as React.CSSProperties}
-                    onClick={() => p.togglePoiCat(c)}
-                  >
-                    <span className="dot" />
-                    {POI_STYLE[c].label}
-                    <span className="n">{n}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </Module>
-
-          {/* 3.2 Rayon d'analyse */}
-          <Module id="3.2" title="RAYON D'ANALYSE">
-            <div className="field-row" style={{ alignItems: 'center' }}>
-              <input
-                type="range"
-                min={100}
-                max={1500}
-                step={50}
-                value={p.radius}
-                onChange={(e) => p.setRadius(Number(e.target.value))}
-                style={{ flex: 1, accentColor: '#00ffcc' }}
-              />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--teal)', minWidth: 52, textAlign: 'right' }}>
-                {p.radius} m
-              </span>
-            </div>
-            <div className="hint">Portée de collecte des signaux POI et du maillage rues.</div>
-          </Module>
-
-          {/* 3.3 POI les plus proches */}
-          <Module id="3.3" title="POI PROXIMITÉ">
-            {topPois.length === 0 && <div className="hint">Aucun signal capté.</div>}
-            {topPois.map((poi) => {
-              const st = POI_STYLE[poi.category];
-              const brg = cardinal(
-                Math.atan2(poi.lon - (p.place?.lon ?? 0), poi.lat - (p.place?.lat ?? 0)) *
-                  (180 / Math.PI)
-              );
-              return (
-                <div key={poi.id} className="kv" style={{ padding: '4px 0' }}>
-                  <span className="k" style={{ color: st.color }}>
-                    {st.glyph}
-                  </span>
-                  <span className="v" style={{ textAlign: 'left', flex: 1, margin: '0 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {poi.name ?? st.label}
-                  </span>
-                  <span className="v hl">
-                    {fmtMeters(poi.distance)} {brg}
-                  </span>
-                </div>
-              );
-            })}
-          </Module>
-
-          {/* 3.4 Rues détectées */}
-          <Module id="3.4" title="VOIRIE URBAINE">
-            {streetNames.length === 0 && <div className="hint">Maillage non résolu.</div>}
-            {streetNames.map((n, i) => (
-              <div key={n + i} className="kv">
-                <span className="k">R{i + 1}</span>
-                <span className="v">{n}</span>
-              </div>
-            ))}
-          </Module>
-        </Cat>
-
         {/* ================= 04 OPÉRATIONS ================= */}
         <Cat title="OPÉRATIONS" code="04" open={open.ops} onToggle={() => toggle('ops')}>
-          <Module id="4.1" title="ACTIONS RAPIDES">
+          <Module id="4.1" title="ACTIONS">
             <div className="chip-grid">
               <button className="btn" onClick={p.onFit} disabled={p.pois.length === 0}>
-                ⤢ CADRER ZONE
+                CADRER ZONE
               </button>
               <button className="btn" onClick={p.onCopy} disabled={!p.place}>
-                ⧉ COPIER GPS
+                COPIER GPS
               </button>
             </div>
             <button className="btn amber full" onClick={p.onExport} disabled={!p.place}>
-              ⬒ EXPORTER RAPPORT MISSION (JSON)
+              EXPORTER RAPPORT (JSON)
             </button>
           </Module>
 
@@ -437,7 +482,7 @@ export default function Sidebar(p: SidebarProps) {
         </Cat>
 
         {/* ================= 05 JOURNAL ================= */}
-        <Cat title="JOURNAL TÉLÉMÉTRIE" code="05" open={open.logs} onToggle={() => toggle('logs')}>
+        <Cat title="JOURNAL" code="05" open={open.logs} onToggle={() => toggle('logs')}>
           <div className="module">
             <div className="module-head">
               <span className="mod-id">[5.1]</span>
