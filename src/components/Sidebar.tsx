@@ -4,13 +4,17 @@ import type {
   GeoPlace,
   HistoryEntry,
   IntelResult,
+  LinkGraph,
   LogLine,
   Poi,
   PoiCategory,
+  SearchHit,
   SourceStatus,
-  StreetSegment
+  StreetSegment,
+  ZoneStats
 } from '../types';
 import { POI_STYLE } from './MapView';
+import GraphView from './GraphView';
 import { fmtMeters, toDms } from '../lib/geo';
 
 export interface SidebarProps {
@@ -51,6 +55,20 @@ export interface SidebarProps {
   onCopy: () => void;
   log: LogLine[];
   zoom: number;
+  // v4
+  searchQuery: string;
+  setSearchQuery: (v: string) => void;
+  searchHits: SearchHit[];
+  searching: boolean;
+  onSearch: () => void;
+  onSearchGoto: (h: SearchHit) => void;
+  mode: 'NONE' | 'ZONE' | 'DIST';
+  setMode: (m: 'NONE' | 'ZONE' | 'DIST') => void;
+  zoneStats: ZoneStats | null;
+  onZoneClear: () => void;
+  graph: LinkGraph | null;
+  densityOn: boolean;
+  setDensityOn: (v: boolean) => void;
 }
 
 /* ---------- petits sous-composants ---------- */
@@ -123,9 +141,10 @@ function SourceBadges({ sources }: { sources: SourceStatus[] }) {
 const CATS = [
   { id: 'localised', title: 'LOCALISED POINT', code: '01' },
   { id: 'intel', title: 'RECONNAISSANCE', code: '02' },
-  { id: 'layers', title: 'COUCHES & FOND', code: '03' },
-  { id: 'ops', title: 'OPÉRATIONS', code: '04' },
-  { id: 'logs', title: 'JOURNAL', code: '05' }
+  { id: 'analysis', title: 'ANALYSE', code: '03' },
+  { id: 'layers', title: 'COUCHES & FOND', code: '04' },
+  { id: 'ops', title: 'OPÉRATIONS', code: '05' },
+  { id: 'logs', title: 'JOURNAL', code: '06' }
 ] as const;
 type CatId = (typeof CATS)[number]['id'];
 
@@ -133,6 +152,7 @@ export default function Sidebar(p: SidebarProps) {
   const [open, setOpen] = useState<Record<CatId, boolean>>({
     localised: true,
     intel: true,
+    analysis: true,
     layers: false,
     ops: false,
     logs: false
@@ -366,9 +386,132 @@ export default function Sidebar(p: SidebarProps) {
           </Module>
         </Cat>
 
-        {/* ================= 03 COUCHES & FOND ================= */}
-        <Cat title="COUCHES & FOND" code="03" open={open.layers} onToggle={() => toggle('layers')}>
-          <Module id="3.1" title="RAYON D'ANALYSE">
+        {/* ================= 03 ANALYSE ================= */}
+        <Cat title="ANALYSE" code="03" open={open.analysis} onToggle={() => toggle('analysis')}>
+          {/* 3.1 Recherche nominative */}
+          <Module id="3.1" title="RECHERCHE NOMINATIVE">
+            <div className="field-row">
+              <input
+                className="coord-input"
+                placeholder="« 12 rue de Rivoli, Paris » · « Tour Eiffel »"
+                value={p.searchQuery}
+                onChange={(e) => p.setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !p.searching) p.onSearch();
+                }}
+                spellCheck={false}
+              />
+              <button className="btn" onClick={p.onSearch} disabled={p.searching || !p.searchQuery.trim()}>
+                {p.searching ? '···' : 'SCAN'}
+              </button>
+            </div>
+            {p.searchHits.map((h) => (
+              <button key={h.id} className="hist-item" onClick={() => p.onSearchGoto(h)}>
+                <span className="h-dot" />
+                <span className="h-main">
+                  <span className="h-label">{h.shortName}</span>
+                  <span className="h-coords">
+                    {h.lat.toFixed(5)}, {h.lon.toFixed(5)} · {h.type}
+                  </span>
+                </span>
+              </button>
+            ))}
+            {p.searchHits.length === 0 && <div className="hint">Nominatim + Photon · tapez une adresse ou un lieu.</div>}
+          </Module>
+
+          {/* 3.2 Outils carte */}
+          <Module id="3.2" title="OUTILS CARTE">
+            <div className="chip-grid">
+              <button
+                className={`chip${p.mode === 'ZONE' ? ' on' : ''}`}
+                style={{ '--c': '#3b82c4' } as React.CSSProperties}
+                onClick={() => p.setMode(p.mode === 'ZONE' ? 'NONE' : 'ZONE')}
+              >
+                <span className="dot" />
+                ZONE (clic·clic·dbl)
+              </button>
+              <button
+                className={`chip${p.mode === 'DIST' ? ' on' : ''}`}
+                style={{ '--c': '#3b82c4' } as React.CSSProperties}
+                onClick={() => p.setMode(p.mode === 'DIST' ? 'NONE' : 'DIST')}
+              >
+                <span className="dot" />
+                DISTANCE
+              </button>
+            </div>
+            {p.mode !== 'NONE' && (
+              <div className="hint">
+                Cliquez les sommets puis double-cliquez pour terminer. Mode actif : {p.mode === 'ZONE' ? 'ZONE' : 'DISTANCE'}
+              </div>
+            )}
+          </Module>
+
+          {/* 3.3 Analyse de zone */}
+          <Module id="3.3" title="ANALYSE DE ZONE">
+            {!p.zoneStats && <div className="hint">Dessinez une zone avec l'outil [3.2] pour inventorier son contenu.</div>}
+            {p.zoneStats && (
+              <>
+                <div className="kv">
+                  <span className="k">SURFACE</span>
+                  <span className="v hl">
+                    {p.zoneStats.areaM2 < 10000
+                      ? `${p.zoneStats.areaM2.toFixed(0)} m²`
+                      : `${(p.zoneStats.areaM2 / 10000).toFixed(2)} ha`}
+                  </span>
+                </div>
+                <div className="kv">
+                  <span className="k">PÉRIMÈTRE</span>
+                  <span className="v">{fmtMeters(p.zoneStats.perimeterM)}</span>
+                </div>
+                <div className="kv">
+                  <span className="k">SIGNAUX</span>
+                  <span className="v">{p.zoneStats.poiCount}</span>
+                </div>
+                <div className="kv">
+                  <span className="k">ÉTABLISSEMENTS</span>
+                  <span className="v">{p.zoneStats.establishmentCount}</span>
+                </div>
+                <div className="kv">
+                  <span className="k">ADRESSES</span>
+                  <span className="v">{p.zoneStats.addressCount}</span>
+                </div>
+                {p.zoneStats.streetsInside.length > 0 && (
+                  <div className="kv">
+                    <span className="k">VOIES</span>
+                    <span className="v">{p.zoneStats.streetsInside.slice(0, 3).join(', ')}</span>
+                  </div>
+                )}
+                <button className="btn full" onClick={p.onZoneClear}>
+                  EFFACER LA ZONE
+                </button>
+              </>
+            )}
+          </Module>
+
+          {/* 3.4 Graphe de liens */}
+          <Module id="3.4" title="LIENS LOGIQUES">
+            {p.graph && <GraphView graph={p.graph} selectedId={null} onNodeClick={() => undefined} />}
+            {!p.graph && <div className="hint">Verrouillez une cible pour construire le graphe.</div>}
+            {p.graph && p.graph.links.length > 0 && (
+              <div className="hint">
+                Trait plein : contact partagé (tél/site/email) · tirets : voie commune ou proximité.
+              </div>
+            )}
+          </Module>
+
+          {/* 3.5 Densité */}
+          <Module id="3.5" title="DENSITÉ SECTORIELLE">
+            <div className="layer-row">
+              <span>AFFICHER LA CARTE DE DENSITÉ</span>
+              <Toggle on={p.densityOn} onClick={() => p.setDensityOn(!p.densityOn)} />
+            </div>
+            <div className="hint">Cercles proportionnels au nombre de signaux par secteur.</div>
+          </Module>
+        </Cat>
+
+        {/* ================= 04 COUCHES & FOND ================= */}
+        <Cat title="COUCHES & FOND" code="04" open={open.layers} onToggle={() => toggle('layers')}>
+          <Module id="4.1" title="RAYON D'ANALYSE">
             <div className="field-row" style={{ alignItems: 'center' }}>
               <input
                 type="range"
@@ -385,7 +528,7 @@ export default function Sidebar(p: SidebarProps) {
             </div>
           </Module>
 
-          <Module id="3.2" title="FOND DE CARTE">
+          <Module id="4.2" title="FOND DE CARTE">
             <div className="chip-grid">
               {(['SAT', 'NIGHT', 'STREETS'] as BaseLayer[]).map((b) => (
                 <button
@@ -401,7 +544,7 @@ export default function Sidebar(p: SidebarProps) {
             </div>
           </Module>
 
-          <Module id="3.3" title="OVERLAYS">
+          <Module id="4.3" title="OVERLAYS">
             <div className="layer-row">
               <span>PÉRIMÈTRE RADAR</span>
               <Toggle on={p.showRings} onClick={() => p.setShowRings(!p.showRings)} />
@@ -420,7 +563,7 @@ export default function Sidebar(p: SidebarProps) {
             </div>
           </Module>
 
-          <Module id="3.4" title={`HISTORIQUE [${p.history.length}]`}>
+          <Module id="4.4" title={`HISTORIQUE [${p.history.length}]`}>
             {p.history.length === 0 && <div className="hint">Aucun point verrouillé.</div>}
             {p.history.map((h) => (
               <button key={h.id} className="hist-item" onClick={() => p.onHistoryGoto(h)}>
@@ -446,8 +589,8 @@ export default function Sidebar(p: SidebarProps) {
         </Cat>
 
         {/* ================= 04 OPÉRATIONS ================= */}
-        <Cat title="OPÉRATIONS" code="04" open={open.ops} onToggle={() => toggle('ops')}>
-          <Module id="4.1" title="ACTIONS">
+        <Cat title="OPÉRATIONS" code="05" open={open.ops} onToggle={() => toggle('ops')}>
+          <Module id="5.1" title="ACTIONS">
             <div className="chip-grid">
               <button className="btn" onClick={p.onFit} disabled={p.pois.length === 0}>
                 CADRER ZONE
@@ -461,7 +604,7 @@ export default function Sidebar(p: SidebarProps) {
             </button>
           </Module>
 
-          <Module id="4.2" title="ÉTAT SYSTÈME">
+          <Module id="5.2" title="ÉTAT SYSTÈME">
             <div className="kv">
               <span className="k">ZOOM</span>
               <span className="v">Z{p.zoom.toFixed(1)}</span>
@@ -482,7 +625,7 @@ export default function Sidebar(p: SidebarProps) {
         </Cat>
 
         {/* ================= 05 JOURNAL ================= */}
-        <Cat title="JOURNAL" code="05" open={open.logs} onToggle={() => toggle('logs')}>
+        <Cat title="JOURNAL" code="06" open={open.logs} onToggle={() => toggle('logs')}>
           <div className="module">
             <div className="module-head">
               <span className="mod-id">[5.1]</span>

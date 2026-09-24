@@ -253,7 +253,8 @@ export async function fetchPois(
       lon: pLon,
       category: cat,
       name: el.tags?.name,
-      distance: haversine(lat, lon, pLat, pLon)
+      distance: haversine(lat, lon, pLat, pLon),
+      osmId: `${el.type === 'way' ? 'w' : el.type === 'relation' ? 'r' : 'n'}${el.id}`
     });
   }
   pois.sort((a, b) => a.distance - b.distance);

@@ -947,6 +947,95 @@
   color: var(--blue);
 }
 
+/* ---------- INSPECTEUR (panneau droit) ---------- */
+
+.inspector {
+  position: fixed;
+  top: 42px;
+  right: 0;
+  bottom: 26px;
+  width: 300px;
+  z-index: 950;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  border-left: 1px solid var(--line);
+}
+
+.inspector-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.inspector-kind {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 1.6px;
+  color: var(--blue);
+  margin-bottom: 3px;
+}
+
+.inspector-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--txt-0);
+  line-height: 1.3;
+}
+
+.inspector-sub {
+  font-size: 11px;
+  color: var(--txt-1);
+  margin-top: 2px;
+}
+
+.inspector-x {
+  color: var(--txt-2);
+  font-family: var(--font-mono);
+  padding: 2px 5px;
+}
+
+.inspector-x:hover {
+  color: var(--err);
+}
+
+.inspector-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px;
+}
+
+.trace {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  padding: 8px 10px;
+}
+
+.trace-title {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 1.6px;
+  color: var(--txt-2);
+  margin-bottom: 4px;
+}
+
+.inspector-actions {
+  margin-top: 10px;
+}
+
+/* ---------- GRAPHE DE LIENS ---------- */
+
+.graph-svg {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+}
+
 /* ---------- Toast ---------- */
 
 .toast-wrap {

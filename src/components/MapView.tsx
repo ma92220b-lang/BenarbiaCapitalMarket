@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import L from 'leaflet';
-import type { BaseLayer, GeoPlace, Poi, PoiCategory, StreetSegment } from '../types';
+import type { BaseLayer, DensityCell, GeoPlace, Poi, PoiCategory, StreetSegment } from '../types';
 
 export interface MapHandle {
   flyTriPhase: (place: GeoPlace, target: [number, number]) => void;
@@ -23,6 +23,11 @@ interface Props {
   onPoiSelect: (p: Poi) => void;
   onZoomChange: (z: number) => void;
   onTileError: (layer: BaseLayer) => void;
+  mode: 'NONE' | 'ZONE' | 'DIST';
+  onZoneComplete: (poly: [number, number][]) => void;
+  onMeasureComplete: (meters: number) => void;
+  density: DensityCell[];
+  showDensity: boolean;
 }
 
 const POI_STYLE: Record<PoiCategory, { color: string; glyph: string; label: string }> = {
@@ -61,7 +66,12 @@ const MapView = forwardRef<MapHandle, Props>(function MapView(
     showTrails,
     onPoiSelect,
     onZoomChange,
-    onTileError
+    onTileError,
+    mode,
+    onZoneComplete,
+    onMeasureComplete,
+    density,
+    showDensity
   },
   ref
 ) {
@@ -361,6 +371,90 @@ const MapView = forwardRef<MapHandle, Props>(function MapView(
       }
     }
   }));
+
+  // ----- Outils : dessin de zone et mesure de distance -----
+  const drawRef = useRef<L.LayerGroup | null>(null);
+  const drawingRef = useRef<{ pts: [number, number][]; line: L.Polyline; markers: L.CircleMarker[] } | null>(null);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!drawRef.current) drawRef.current = L.layerGroup().addTo(map);
+
+    const onClick = (e: L.LeafletMouseEvent) => {
+      const m = modeRef.current;
+      if (m === 'NONE') return;
+      const st = drawingRef.current;
+      const pt: [number, number] = [e.latlng.lat, e.latlng.lng];
+      if (!st) {
+        const line = L.polyline([pt], { color: '#3b82c4', weight: 1.4, dashArray: '4 4' }).addTo(drawRef.current!);
+        drawingRef.current = { pts: [pt], line, markers: [] };
+      } else {
+        st.pts.push(pt);
+        st.line.setLatLngs(st.pts);
+        if (m === 'ZONE' && st.pts.length >= 3) {
+          st.line.setStyle({ fill: true, fillColor: '#3b82c4', fillOpacity: 0.08 });
+        }
+      }
+      const dot = L.circleMarker(e.latlng, { radius: 3, color: '#c8d2dc', weight: 1, fillOpacity: 1 }).addTo(drawRef.current!);
+      drawingRef.current?.markers.push(dot);
+    };
+
+    const onDblClick = () => {
+      const st = drawingRef.current;
+      if (!st) return;
+      if (modeRef.current === 'ZONE' && st.pts.length >= 3) {
+        L.polygon(st.pts, { color: '#3b82c4', weight: 1.4, fillOpacity: 0.06 }).addTo(drawRef.current!);
+        onZoneComplete(st.pts);
+      } else if (st.pts.length >= 2) {
+        let d = 0;
+        for (let i = 1; i < st.pts.length; i++) d += L.latLng(st.pts[i - 1]).distanceTo(L.latLng(st.pts[i]));
+        L.popup({ maxWidth: 220 })
+          .setLatLng(st.pts[st.pts.length - 1])
+          .setContent(`<span style="font-family:monospace">DISTANCE : ${d < 1000 ? d.toFixed(0) + ' m' : (d / 1000).toFixed(2) + ' km'}</span>`)
+          .openOn(map);
+        onMeasureComplete(d);
+      }
+      st.line.remove();
+      st.markers.forEach((m) => m.remove());
+      drawingRef.current = null;
+    };
+
+    map.on('click', onClick);
+    map.on('dblclick', onDblClick);
+    return () => {
+      map.off('click', onClick);
+      map.off('dblclick', onDblClick);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Nettoyage des tracés quand le mode change
+  useEffect(() => {
+    if (mode === 'NONE' && drawRef.current) drawRef.current.clearLayers();
+  }, [mode]);
+
+  // ----- Densité sectorielle -----
+  const densRef = useRef<L.LayerGroup | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!densRef.current) densRef.current = L.layerGroup().addTo(map);
+    densRef.current.clearLayers();
+    if (!showDensity) return;
+    for (const c of density) {
+      if (c.count <= 0) continue;
+      const r = 40 + Math.min(280, c.count * 22);
+      L.circle([c.lat, c.lon], {
+        radius: r,
+        stroke: false,
+        fillColor: '#3b82c4',
+        fillOpacity: Math.min(0.3, 0.05 + c.count * 0.02)
+      }).addTo(densRef.current);
+    }
+  }, [density, showDensity]);
 
   // HUD central : réticule + coordonnées curseur
   useEffect(() => {

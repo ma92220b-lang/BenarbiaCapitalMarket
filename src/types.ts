@@ -47,13 +47,16 @@ export interface Poi {
   lon: number;
   category: PoiCategory;
   name?: string;
-  distance: number; // mètres depuis la cible
+  distance: number;
+  phone?: string;
+  website?: string;
+  osmId?: string; // ex: "n123456" / "w98765" — traçabilité OSM
 }
 
 export interface StreetSegment {
   name: string;
   points: [number, number][];
-  distance: number; // distance min de la cible
+  distance: number;
   surface?: string;
 }
 
@@ -97,7 +100,6 @@ export type BaseLayer = 'SAT' | 'NIGHT' | 'STREETS';
 /* Reconnaissance croisée                                              */
 /* ------------------------------------------------------------------ */
 
-/** Établissement enrichi multi-sources (annuaire open-data + OSM). */
 export interface IntelEstablishment {
   name: string;
   category: PoiCategory | 'other';
@@ -109,17 +111,16 @@ export interface IntelEstablishment {
   email?: string;
   openingHours?: string;
   address?: string;
-  sources: string[]; // ex: ['OSM', 'PAGES JAUNES OPEN']
+  osmId?: string;
+  sources: string[];
 }
 
-/** Adresse numérotée relevée dans le périmètre. */
 export interface BuildingAddress {
   street: string;
   housenumber: string;
   lat: number;
   lon: number;
   distance: number;
-  units?: string; //Nb d'entrées/bâtiments au même numéro
 }
 
 export interface IntelResult {
@@ -127,10 +128,10 @@ export interface IntelResult {
   addresses: BuildingAddress[];
   streetNames: string[];
   verify: {
-    nominatim: boolean; // adresse résolue
-    photon: boolean; // accord du 2e géocodeur
-    agreementMeters: number | null; // écart entre les deux
-    osmAddress: boolean; // addr présente dans le périmètre
+    nominatim: boolean;
+    photon: boolean;
+    agreementMeters: number | null;
+    osmAddress: boolean;
   };
 }
 
@@ -139,4 +140,75 @@ export interface SourceStatus {
   label: string;
   state: 'pend' | 'ok' | 'warn' | 'err';
   detail?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* v4 — Recherche nominative                                           */
+/* ------------------------------------------------------------------ */
+
+export interface SearchHit {
+  id: string;
+  displayName: string;
+  shortName: string;
+  lat: number;
+  lon: number;
+  type: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* v4 — Analyse de zone (polygone dessiné)                             */
+/* ------------------------------------------------------------------ */
+
+export interface ZoneStats {
+  polygon: [number, number][];
+  areaM2: number;
+  perimeterM: number;
+  poiCount: number;
+  establishmentCount: number;
+  addressCount: number;
+  streetsInside: string[];
+  poiByCategory: Record<string, number>;
+}
+
+/* ------------------------------------------------------------------ */
+/* v4 — Liens logiques entre entités                                   */
+/* ------------------------------------------------------------------ */
+
+export type LinkKind =
+  | 'phone-shared'
+  | 'website-shared'
+  | 'email-shared'
+  | 'same-street'
+  | 'nearby'
+  | 'same-name';
+
+export interface EntityNode {
+  id: string; // 'est:...' | 'addr:...' | 'target'
+  kind: 'establishment' | 'address' | 'target';
+  label: string;
+  lat: number;
+  lon: number;
+}
+
+export interface EntityLink {
+  from: string;
+  to: string;
+  kind: LinkKind;
+  weight: number; // 1 = fort, 3 = faible
+  detail: string;
+}
+
+export interface LinkGraph {
+  nodes: EntityNode[];
+  links: EntityLink[];
+}
+
+/* ------------------------------------------------------------------ */
+/* v4 — Densité sectorielle                                            */
+/* ------------------------------------------------------------------ */
+
+export interface DensityCell {
+  lat: number;
+  lon: number;
+  count: number;
 }

@@ -1,18 +1,23 @@
 import { useCallback, useRef, useState } from 'react';
 import MapView, { POI_STYLE, type MapHandle } from './components/MapView';
 import Sidebar from './components/Sidebar';
+import Inspector, { poiToSelection, type Selection } from './components/Inspector';
 import type {
   BaseLayer,
+  DensityCell,
   GeoPlace,
   HistoryEntry,
   IntelResult,
+  LinkGraph,
   LogLine,
   NearestRoad,
   Phase,
   Poi,
   PoiCategory,
+  SearchHit,
   SourceStatus,
-  StreetSegment
+  StreetSegment,
+  ZoneStats
 } from './types';
 import {
   deriveNearestRoad,
@@ -25,6 +30,9 @@ import {
   reverseGeocode,
   toDms
 } from './lib/geo';
+import { analyzeZone, searchPlaces } from './lib/search';
+import { buildLinkGraph } from './lib/links';
+import L from 'leaflet';
 
 let logId = 0;
 let histId = 0;
@@ -76,6 +84,17 @@ export default function App() {
   const [toasts, setToasts] = useState<{ id: number; msg: string; kind: 'ok' | 'err' }[]>([]);
   const [tileFail, setTileFail] = useState<BaseLayer | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // v4
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [mode, setMode] = useState<'NONE' | 'ZONE' | 'DIST'>('NONE');
+  const [zoneStats, setZoneStats] = useState<ZoneStats | null>(null);
+  const [graph, setGraph] = useState<LinkGraph | null>(null);
+  const [densityOn, setDensityOn] = useState(false);
+  const [density, setDensity] = useState<DensityCell[]>([]);
+  const [selection, setSelection] = useState<Selection | null>(null);
 
   const addLog = useCallback((level: LogLine['level'], msg: string) => {
     setLog((l) => [...l.slice(-120), { id: ++logId, ts: Date.now(), level, msg }]);
@@ -198,6 +217,24 @@ export default function App() {
         setNearestRoad(deriveNearestRoad([coords.lat, coords.lon], s));
         addLog('OK', `${p.length} SIGNAUX POI · ${s.length} SEGMENTS VOIRIE`);
 
+        // 6b. Graphe de liens + densité sectorielle
+        setGraph(
+          buildLinkGraph(
+            pl.shortName,
+            [coords.lat, coords.lon],
+            intelRes?.establishments ?? [],
+            intelRes?.addresses ?? []
+          )
+        );
+        const cells = new Map<string, DensityCell>();
+        for (const poi of p) {
+          const key = `${poi.lat.toFixed(3)},${poi.lon.toFixed(3)}`;
+          const c = cells.get(key) ?? { lat: poi.lat, lon: poi.lon, count: 0 };
+          c.count++;
+          cells.set(key, c);
+        }
+        setDensity([...cells.values()]);
+
         // 6. Historique
         setHistory((h) =>
           [
@@ -234,6 +271,52 @@ export default function App() {
   /* ---------------------------------------------------------------- */
   /* Actions                                                           */
   /* ---------------------------------------------------------------- */
+
+  const doSearch = useCallback(
+    async (q?: string) => {
+      const query = (q ?? searchQuery).trim();
+      if (!query) return;
+      setSearching(true);
+      addLog('SYS', `RECHERCHE « ${query} »`);
+      try {
+        const hits = await searchPlaces(query);
+        setSearchHits(hits);
+        addLog('OK', `${hits.length} RÉSULTATS`);
+      } catch {
+        addLog('ERR', 'RECHERCHE ÉCHOUÉE');
+      } finally {
+        setSearching(false);
+      }
+    },
+    [searchQuery, addLog]
+  );
+
+  const gotoSearchHit = useCallback(
+    (h: SearchHit) => {
+      setInput(`${h.lat.toFixed(6)}, ${h.lon.toFixed(6)}`);
+      void runLocalise(`${h.lat.toFixed(6)}, ${h.lon.toFixed(6)}`);
+    },
+    [runLocalise]
+  );
+
+  const onZoneComplete = useCallback(
+    (poly: [number, number][]) => {
+      setMode('NONE');
+      const stats = analyzeZone(
+        poly,
+        pois,
+        intel?.establishments ?? [],
+        intel?.addresses ?? [],
+        streets
+      );
+      setZoneStats(stats);
+      addLog(
+        'OK',
+        `ZONE ANALYSÉE · ${stats.poiCount} SIGNAUX · ${stats.establishmentCount} ÉTABLISSEMENTS · ${stats.addressCount} ADRESSES`
+      );
+    },
+    [pois, intel, streets, addLog]
+  );
 
   const gotoHistory = useCallback(
     (h: HistoryEntry) => {
@@ -339,9 +422,17 @@ export default function App() {
         showStreets={showStreets}
         showGrid={showGrid}
         showTrails={showTrails}
+        mode={mode}
+        onZoneComplete={onZoneComplete}
+        onMeasureComplete={(m) => {
+          setMode('NONE');
+          addLog('OK', `DISTANCE MESURÉE : ${fmtMeters(m)}`);
+        }}
+        density={density}
+        showDensity={densityOn}
         onPoiSelect={(p) => {
           addLog('INFO', `POI : ${p.name ?? POI_STYLE[p.category].label} · ${fmtMeters(p.distance)}`);
-          mapRef.current?.getMap()?.flyTo([p.lat, p.lon], Math.max(17, zoom), { duration: 1.2 });
+          setSelection(poiToSelection(p));
         }}
         onZoomChange={(z) => {
           setZoom(z);
@@ -420,6 +511,36 @@ export default function App() {
         onCopy={doCopy}
         log={log}
         zoom={zoom}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        searchHits={searchHits}
+        searching={searching}
+        onSearch={() => void doSearch()}
+        onSearchGoto={gotoSearchHit}
+        mode={mode}
+        setMode={setMode}
+        zoneStats={zoneStats}
+        onZoneClear={() => {
+          setZoneStats(null);
+          mapRef.current?.getMap()?.eachLayer((l) => {
+            if (l instanceof L.Polygon) mapRef.current?.getMap()?.removeLayer(l);
+          });
+        }}
+        graph={graph}
+        densityOn={densityOn}
+        setDensityOn={(v) => {
+          setDensityOn(v);
+          addLog('INFO', `DENSITÉ ${v ? 'ON' : 'OFF'}`);
+        }}
+      />
+
+      {/* Inspecteur d'objet */}
+      <Inspector
+        selection={selection}
+        onClose={() => setSelection(null)}
+        onGoto={(lat, lon) => {
+          mapRef.current?.getMap()?.flyTo([lat, lon], Math.max(17, zoom), { duration: 1.2 });
+        }}
       />
 
       {/* Overlay phase */}
