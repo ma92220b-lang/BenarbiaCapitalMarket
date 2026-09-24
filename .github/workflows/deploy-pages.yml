@@ -40,6 +40,9 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # Active Pages automatiquement au premier déploiement
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
